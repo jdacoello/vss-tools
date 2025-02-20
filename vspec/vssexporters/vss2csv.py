@@ -93,7 +93,7 @@ class Vss2Csv(Vss2X):
             print_csv_header(f, vspec2vss_config.generate_uuid, signal_entry_type, include_instance_column, extended_attributes)
             print_csv_content(f, config, signal_root, vspec2vss_config.generate_uuid, include_instance_column, extended_attributes)
             if data_type_root is not None and generic_entry is True:
-                print_csv_content(f, data_type_root, vspec2vss_config.generate_uuid, include_instance_column)
+                print_csv_content(f, config, data_type_root, vspec2vss_config.generate_uuid, include_instance_column, extended_attributes)
 
         if data_type_root is not None and generic_entry is False:
             with open(config.types_output_file, 'w') as f:
