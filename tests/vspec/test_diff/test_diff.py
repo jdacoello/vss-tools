@@ -751,3 +751,132 @@ class TestIsLeaf:
         removed = by_label["A.ParentStructSensor"]
         assert removed["change_type"] == REMOVED
         assert removed["is_leaf"] is False
+
+
+# ---------------------------------------------------------------------------
+# instantiate — optional field on PROPERTY events; only ever set to False when
+# the source vspec node opts out of inheriting its parent's instances.
+# ---------------------------------------------------------------------------
+
+
+class TestInstantiate:
+    def test_default_signal_omits_instantiate(self, tmp_path: Path):
+        prev_dir = tmp_path / "prev"
+        curr_dir = tmp_path / "curr"
+        prev_dir.mkdir()
+        curr_dir.mkdir()
+
+        (prev_dir / "model.vspec").write_text("")
+        (curr_dir / "model.vspec").write_text("A.Speed:\n  type: sensor\n  description: speed\n  datatype: float\n")
+
+        result = diff_folders(prev_dir, curr_dir)
+        by_label = changes_by_label(result, kind=PROPERTY)
+        assert "instantiate" not in by_label["A.Speed"]
+
+    def test_opted_out_signal_added_has_instantiate_false(self, tmp_path: Path):
+        prev_dir = tmp_path / "prev"
+        curr_dir = tmp_path / "curr"
+        prev_dir.mkdir()
+        curr_dir.mkdir()
+
+        (prev_dir / "model.vspec").write_text("")
+        (curr_dir / "model.vspec").write_text(
+            "A.Speed:\n  type: sensor\n  description: speed\n  datatype: float\n  instantiate: false\n"
+        )
+
+        result = diff_folders(prev_dir, curr_dir)
+        by_label = changes_by_label(result, kind=PROPERTY)
+        speed = by_label["A.Speed"]
+        assert speed["instantiate"] is False
+        # 'instantiate' is a first-class field, never a generic aspect key.
+        assert "instantiate" not in speed["aspects"]
+
+    def test_modified_unrelated_change_still_reports_current_instantiate(self, tmp_path: Path):
+        prev_dir = tmp_path / "prev"
+        curr_dir = tmp_path / "curr"
+        prev_dir.mkdir()
+        curr_dir.mkdir()
+
+        (prev_dir / "model.vspec").write_text(
+            "A.Speed:\n  type: sensor\n  description: old\n  datatype: float\n  instantiate: false\n"
+        )
+        (curr_dir / "model.vspec").write_text(
+            "A.Speed:\n  type: sensor\n  description: new\n  datatype: float\n  instantiate: false\n"
+        )
+
+        result = diff_folders(prev_dir, curr_dir)
+        by_label = changes_by_label(result, kind=PROPERTY)
+        speed = by_label["A.Speed"]
+        assert speed["change_type"] == MODIFIED
+        assert speed["instantiate"] is False
+        assert "instantiate" not in speed["aspects"]
+
+    def test_instantiate_transition_reported_and_not_leaked_into_aspects(self, tmp_path: Path):
+        prev_dir = tmp_path / "prev"
+        curr_dir = tmp_path / "curr"
+        prev_dir.mkdir()
+        curr_dir.mkdir()
+
+        (prev_dir / "model.vspec").write_text("A.Speed:\n  type: sensor\n  description: speed\n  datatype: float\n")
+        (curr_dir / "model.vspec").write_text(
+            "A.Speed:\n  type: sensor\n  description: speed\n  datatype: float\n  instantiate: false\n"
+        )
+
+        result = diff_folders(prev_dir, curr_dir)
+        by_label = changes_by_label(result, kind=PROPERTY)
+        speed = by_label["A.Speed"]
+        assert speed["change_type"] == MODIFIED
+        assert speed["instantiate"] is False
+        assert "instantiate" not in speed["aspects"]
+
+    def test_removed_opted_out_signal_reports_previous_instantiate(self, tmp_path: Path):
+        prev_dir = tmp_path / "prev"
+        curr_dir = tmp_path / "curr"
+        prev_dir.mkdir()
+        curr_dir.mkdir()
+
+        (prev_dir / "model.vspec").write_text(
+            "A.Speed:\n  type: sensor\n  description: speed\n  datatype: float\n  instantiate: false\n"
+        )
+        (curr_dir / "model.vspec").write_text("")
+
+        result = diff_folders(prev_dir, curr_dir)
+        by_label = changes_by_label(result, kind=PROPERTY)
+        removed = by_label["A.Speed"]
+        assert removed["change_type"] == REMOVED
+        assert removed["instantiate"] is False
+
+    def test_opted_out_branch_pointer_event_has_instantiate_false(self, tmp_path: Path):
+        # A branch/struct duality pointer event should also reflect the branch's
+        # own instantiate opt-out.
+        prev_dir = tmp_path / "prev"
+        curr_dir = tmp_path / "curr"
+        prev_dir.mkdir()
+        curr_dir.mkdir()
+
+        (prev_dir / "model.vspec").write_text("Vehicle:\n  type: branch\n  description: root\n")
+        (curr_dir / "model.vspec").write_text(
+            "Vehicle:\n  type: branch\n  description: root\n"
+            "Vehicle.Cabin:\n  type: branch\n  description: cabin\n  instantiate: false\n"
+        )
+
+        result = diff_folders(prev_dir, curr_dir)
+        by_label = changes_by_label(result, kind=PROPERTY)
+        cabin_property = by_label["Vehicle.Cabin"]
+        assert cabin_property["instantiate"] is False
+
+    def test_unit_added_omits_instantiate(self, tmp_path: Path):
+        # instantiate is forbidden on ENUM_VALUE events — never present at all.
+        prev_dir = tmp_path / "prev"
+        curr_dir = tmp_path / "curr"
+        prev_dir.mkdir()
+        curr_dir.mkdir()
+
+        (prev_dir / "model.vspec").write_text("")
+        (curr_dir / "model.vspec").write_text("")
+        (prev_dir / "units.yaml").write_text("")
+        (curr_dir / "units.yaml").write_text("percent:\n  definition: Percent\n  unit: percent\n  quantity: relation\n")
+
+        result = diff_folders(prev_dir, curr_dir)
+        by_label = changes_by_label(result, kind=ENUM_VALUE)
+        assert "instantiate" not in by_label["percent"]

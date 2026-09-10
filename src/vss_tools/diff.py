@@ -249,7 +249,7 @@ def _map_full_aspects(attrs: dict[str, Any], source: str, node_type: str) -> dic
     Used both for an ADDED event's `aspects` and a REMOVED event's `previous_aspects`
     (the modl IR requires the latter to carry the full prior-state snapshot).
     """
-    aspects = {k: v for k, v in attrs.items() if k not in ("fka", "quantity", "name")}
+    aspects = {k: v for k, v in attrs.items() if k not in ("fka", "quantity", "name", "instantiate")}
     kind = _vss_kind(node_type, source)
     if kind == PROPERTY:
         raw_dt = aspects.pop("datatype", None)
@@ -282,6 +282,18 @@ def _is_leaf(attrs: dict[str, Any]) -> bool:
     return Datatypes.get_type(base_type) is not None
 
 
+def _instantiate_value(attrs: dict[str, Any]) -> bool | None:
+    """
+    Whether a PROPERTY event should carry an explicit `instantiate: false`.
+
+    vspec's `instantiate` attribute defaults to True and is only ever present in a
+    compose snapshot when the source explicitly opted out (`instantiate: false`) of
+    inheriting the parent's instances. Returns None — omit the field, the modl IR
+    default meaning "inherit the parent's instances" — unless that opt-out is present.
+    """
+    return False if attrs.get("instantiate") is False else None
+
+
 def _wrap_op(previous: Any, current: Any) -> dict[str, Any]:
     """
     Wrap a single changed aspect value with its modl `_op` annotation.
@@ -308,7 +320,7 @@ def _map_aspects_delta(attribute_changes: list[dict[str, Any]]) -> dict[str, Any
     delta: dict[str, Any] = {}
     for ac in attribute_changes:
         attr, previous, current = ac["attribute"], ac["previous"], ac["current"]
-        if attr in ("fka", "name"):
+        if attr in ("fka", "name", "instantiate"):
             continue
         if attr == "datatype":
             prev_type, prev_is_list = _extract_datatype(previous)
@@ -367,6 +379,9 @@ def _build_primary_event(ev: dict[str, Any]) -> dict[str, Any]:
         event["parent_label"] = parent
     if kind == PROPERTY:
         event["is_leaf"] = _is_leaf(attrs)
+        instantiate = _instantiate_value(attrs)
+        if instantiate is not None:
+            event["instantiate"] = instantiate
 
     if change_type == ADDED:
         event["aspects"] = _map_full_aspects(attrs, source, node_type)
@@ -407,6 +422,9 @@ def _build_property_pointer_event(ev: dict[str, Any], parent: str) -> dict[str, 
         # A branch/struct pointer always references another entity, never a leaf.
         "is_leaf": False,
     }
+    instantiate = _instantiate_value(attrs)
+    if instantiate is not None:
+        event["instantiate"] = instantiate
 
     if change_type == ADDED:
         event["aspects"] = {"is_list": bool(attrs.get("instances")), "is_required": False}
