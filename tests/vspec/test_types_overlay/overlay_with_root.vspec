@@ -1,0 +1,6 @@
+Types:
+  type: branch
+  description: Top-level branch for custom vehicle data types.
+
+Types.Struct1.y:
+  binding: "2nm"

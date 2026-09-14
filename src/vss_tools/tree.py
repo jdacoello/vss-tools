@@ -196,6 +196,48 @@ class VSSNode(Node):  # type: ignore[misc]
             node.parent = auto_node
             return self.connect(target_fqn, auto_node)
 
+    def connect_or_merge(self, fqn: str, node: VSSNode) -> None:
+        """
+        Connects a node with a given fqn to this one, like `connect()`.
+        Unlike `connect()`, if a node with the given fqn already exists it
+        merges `node`'s data (and children) into the existing node instead
+        of discarding `node`. This is used to support overlay-style
+        `--types` files that redefine attributes on already-defined nodes.
+        It automatically generates missing branches in between, same as
+        `connect()`.
+        """
+        existing = self.get_node_with_fqn(fqn)
+        if existing:
+            log.debug(f"'{fqn}', merging overlay attributes into existing node")
+            # `node` is typically detached (no parent), so its own
+            # `get_fqn()` (position based) would only report its bare name
+            # instead of the full `fqn`, which `merge()` requires to match.
+            # Temporarily reattach it as a sibling of `existing` so its (and
+            # its descendants') fqn gets recomputed correctly, merge, then
+            # drop the now-empty placeholder.
+            parent = existing.parent
+            if parent is not None:
+                node.parent = parent
+            existing.merge(node)
+            node.parent = None
+            return
+        target_fqn = get_expected_parent(fqn)
+        if not target_fqn:
+            log.warning(f"'{fqn}', unable to determine attachment point for types overlay")
+            return
+        target = self.get_node_with_fqn(target_fqn)
+        if target:
+            log.debug(f"'{fqn}', attaching new node via types overlay")
+            node.parent = target
+        else:
+            auto_node = VSSNode(
+                get_name(target_fqn),
+                target_fqn,
+                {"type": "branch"},
+            )
+            node.parent = auto_node
+            self.connect_or_merge(target_fqn, auto_node)
+
     def expand_instances(self) -> None:
         """
         Expanding all nodes that have configured
@@ -551,11 +593,19 @@ def count_seperator(s: str) -> int:
     return s.count(SEPARATOR)
 
 
-def build_tree(data: dict[str, Any], connect_orphans: bool = False) -> tuple[VSSNode, dict[str, VSSNode]]:
+def build_tree(
+    data: dict[str, Any], connect_orphans: bool = False, require_root: bool = True
+) -> tuple[VSSNode | None, dict[str, VSSNode]]:
     """
     Building a tree out of raw dictionary data.
     Also tries to find orphans and connects orphans
     if desired.
+
+    If `require_root` is False, data without any root-level (dot-count 0)
+    entry is allowed: no root is built and every top-most node found in
+    `data` is returned in the `orphans` dict instead of raising
+    `NoRootsException`. This supports overlay-style data meant to be
+    attached onto an already-existing tree built elsewhere.
     """
     nodes: dict[str, VSSNode] = {}
 
@@ -591,6 +641,8 @@ def build_tree(data: dict[str, Any], connect_orphans: bool = False) -> tuple[VSS
                 orphans[fqn] = node
 
     if not roots:
+        if not require_root:
+            return None, orphans
         raise NoRootsException()
 
     if len(roots) > 1:

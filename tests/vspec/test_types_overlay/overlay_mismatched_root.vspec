@@ -1,0 +1,12 @@
+OtherTypes:
+  type: branch
+  description: A completely different, incompatible type tree root.
+
+OtherTypes.Struct2:
+  type: struct
+  description: A struct in a different root.
+
+OtherTypes.Struct2.z:
+  type: property
+  description: z property
+  datatype: double

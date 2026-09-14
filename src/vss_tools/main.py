@@ -23,7 +23,14 @@ from vss_tools.model import (
     get_all_model_fields,
 )
 from vss_tools.strict import StrictExceptions, StrictOption, load_strict_exceptions
-from vss_tools.tree import ModelValidationException, VSSNode, add_struct_schemas, build_tree
+from vss_tools.tree import (
+    ModelValidationException,
+    VSSNode,
+    add_struct_schemas,
+    build_tree,
+    count_seperator,
+    get_name,
+)
 from vss_tools.units_quantities import DuplicatedUnitException, MalformedDictException, load_quantities, load_units
 from vss_tools.vspec import InvalidSpecDuplicatedEntryException, InvalidSpecException, load_vspec
 
@@ -41,6 +48,10 @@ class DefaultFirstAllowedException(Exception):
 
 
 class MultipleTypeTreesException(Exception):
+    pass
+
+
+class TypesOverlayWithoutRootException(Exception):
     pass
 
 
@@ -129,17 +140,53 @@ def get_types_root(types: tuple[Path, ...], include_dirs: list[Path]) -> VSSNode
     # types from earlier type files
     for types_file in list(types):
         data = load_vspec(include_dirs, [types_file], "Types")
-        root, orphans = build_tree(data.data)
-        if orphans:
-            log.error(f"Types model has orphans\n{orphans}")
-            exit(1)
-        if types_root:
-            node: VSSNode
-            for node in PreOrderIter(root):
-                if not types_root.connect(node.get_fqn(), node):
-                    raise MultipleTypeTreesException()
-        else:
+        root_keys = [k for k in data.data.keys() if count_seperator(k) == 0]
+
+        if types_root is None:
+            # The first --types file must fully establish the types tree:
+            # it needs a root declaration and must be self-contained (no
+            # entries whose parent is missing from this same file).
+            if not root_keys:
+                msg = (
+                    f"'{types_file}' contains no root-level type declaration and no "
+                    "prior '--types' file has established a types tree to overlay onto. "
+                    "The first '--types' file (or an earlier one before this) must "
+                    "declare a top-level branch (e.g. 'Types:')."
+                )
+                log.critical(msg)
+                raise TypesOverlayWithoutRootException(msg)
+            root, orphans = build_tree(data.data)
+            if orphans:
+                log.error(f"Types model has orphans\n{orphans}")
+                exit(1)
+            assert root is not None  # guaranteed since build_tree() defaults to require_root=True
             types_root = root
+            continue
+
+        # A types tree is already established. This file is treated as an
+        # overlay: it may redeclare the same root (to update the root
+        # branch's own attributes) and/or add attributes to already-defined
+        # nodes, and/or attach brand new nodes -- without needing to
+        # redeclare the full skeleton in between.
+        if root_keys:
+            declared_root_name = get_name(root_keys[0])
+            if declared_root_name != types_root.name:
+                msg = (
+                    f"'{types_file}' declares root '{declared_root_name}' but a types "
+                    f"tree rooted at '{types_root.name}' was already established by a "
+                    "previous '--types' file. Each '--types' file must either share "
+                    "the same root, or declare no root at all (pure attribute overlay)."
+                )
+                log.critical(msg)
+                raise MultipleTypeTreesException(msg)
+
+        root, orphans = build_tree(data.data, require_root=False)
+        if root is not None:
+            # The file redeclared the (matching) root itself; merge any
+            # updated attributes on it into the established types_root.
+            types_root.merge(root)
+        for fqn, node in orphans.items():
+            types_root.connect_or_merge(fqn, node)
 
     # Checking whether user defined root types e.g 'MyType'
     # instead of 'Types.MyType'
@@ -231,6 +278,7 @@ def get_trees(
         exit(1)
 
     root, orphans = build_tree(vspec_data.data, connect_orphans=True)
+    assert root is not None  # guaranteed since build_tree() defaults to require_root=True
 
     if orphans:
         log.error(f"Model has orphans\n{list(orphans.keys())}")

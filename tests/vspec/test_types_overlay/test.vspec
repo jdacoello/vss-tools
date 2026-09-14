@@ -1,0 +1,8 @@
+Vehicle:
+  type: branch
+  description: Vehicle branch.
+
+Vehicle.Signal1:
+  datatype: Types.Struct1
+  type: sensor
+  description: A signal using our custom struct type.

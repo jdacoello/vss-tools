@@ -1,0 +1,15 @@
+Types.Struct1.x:
+  binding: "2nl"
+
+Types.NewBranch:
+  type: branch
+  description: A branch added purely via overlay, without redeclaring 'Types'.
+
+Types.NewBranch.NewStruct:
+  type: struct
+  description: A new struct added purely via overlay.
+
+Types.NewBranch.NewStruct.value:
+  type: property
+  description: A new property on the new struct.
+  datatype: string
