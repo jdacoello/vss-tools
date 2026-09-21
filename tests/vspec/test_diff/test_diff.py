@@ -320,6 +320,77 @@ class TestFkaTypeMismatch:
 
 
 # ---------------------------------------------------------------------------
+# diff_folders — fka cross-parent property move with untouched sibling left behind
+# ---------------------------------------------------------------------------
+
+
+class TestFkaCrossParentMoveWithUntouchedSibling:
+    """
+    Regression test mirroring a real-world case: a leaf property is moved to a different
+    parent branch via `fka`, while a sibling left behind in the old parent is completely
+    unchanged. The sibling must never be misattributed as part of the move (e.g. via a
+    positional/index-based comparison instead of one keyed by FQN).
+    """
+
+    def test_moved_property_is_rename_and_sibling_is_untouched(self, tmp_path: Path):
+        prev_dir = tmp_path / "prev"
+        curr_dir = tmp_path / "curr"
+        prev_dir.mkdir()
+        curr_dir.mkdir()
+
+        (prev_dir / "model.vspec").write_text(
+            "Vehicle.Cabin.Sunroof.Position:\n"
+            "  datatype: uint8\n"
+            "  description: Sunroof position.\n"
+            "  max: 255\n"
+            "  min: 0\n"
+            "  type: actuator\n"
+            "  unit: cm\n"
+            "Vehicle.Cabin.Sunroof.RelativePosition:\n"
+            "  datatype: int8\n"
+            "  description: Sunroof relative position.\n"
+            "  max: 100\n"
+            "  min: -100\n"
+            "  type: actuator\n"
+            "  unit: percent\n"
+        )
+        (curr_dir / "model.vspec").write_text(
+            "Vehicle.Body.Sunroof.Position:\n"
+            "  datatype: uint8\n"
+            "  description: Sunroof position.\n"
+            "  fka: Vehicle.Cabin.Sunroof.Position\n"
+            "  max: 255\n"
+            "  min: 0\n"
+            "  type: actuator\n"
+            "  unit: cm\n"
+            "Vehicle.Cabin.Sunroof.RelativePosition:\n"
+            "  datatype: int8\n"
+            "  description: Sunroof relative position.\n"
+            "  max: 100\n"
+            "  min: -100\n"
+            "  type: actuator\n"
+            "  unit: percent\n"
+        )
+
+        result = diff_folders(prev_dir, curr_dir)
+        all_labels = {c["label"] for c in result["changes"]}
+
+        moved = changes_by_label(result, kind=PROPERTY).get("Vehicle.Body.Sunroof.Position")
+        assert moved is not None, "Position move to Vehicle.Body.Sunroof not detected"
+        assert moved["change_type"] == MODIFIED
+        assert moved["renamed_from"] == "Vehicle.Cabin.Sunroof.Position"
+        # Every other attribute is unchanged across the move, so no aspect deltas at all —
+        # in particular no output_type/min/max/unit changes may leak in from the sibling.
+        assert moved["aspects"] == {}
+
+        # The old FQN is consumed by the rename match — it must not also show up as REMOVED.
+        assert "Vehicle.Cabin.Sunroof.Position" not in all_labels
+
+        # RelativePosition is completely untouched and must not appear as any event at all.
+        assert "Vehicle.Cabin.Sunroof.RelativePosition" not in all_labels
+
+
+# ---------------------------------------------------------------------------
 # diff_folders — datatype array mapping
 # ---------------------------------------------------------------------------
 
