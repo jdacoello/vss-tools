@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--types-overlays/-L` option for all commands supporting `--types` (except `vspec export id`). Partial types files are merged into the types tree, so headers can be defined in any of the files. Modifications of existing nodes are logged as warnings.
+
 ## 6.1
 
 ### Added
